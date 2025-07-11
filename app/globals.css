@@ -1,0 +1,38 @@
+/* globals.css */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 255 255 255;
+    --foreground: 23 23 23;
+  }
+
+  .dark {
+    --background: 10 10 10;
+    --foreground: 237 237 237;
+  }
+
+  body {
+    @apply bg-background-light dark:bg-background-dark text-gray-900 dark:text-gray-100;
+    font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  }
+
+  h1, h2, h3 {
+    @apply font-bold tracking-tight;
+  }
+
+  button {
+    @apply transition-colors duration-200;
+  }
+
+  /* If you need to use these custom properties */
+  .custom-bg {
+    background-color: rgb(var(--background));
+  }
+  
+  .custom-text {
+    color: rgb(var(--foreground));
+  }
+}
