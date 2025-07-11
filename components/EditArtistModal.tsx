@@ -2,8 +2,9 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import { Artist, MASFramework, Session, Media } from "@/lib/types";
-import { FiX, FiImage, FiUpload, FiTrash2, FiVideo, FiFile } from "react-icons/fi";
+import { FiX, FiImage, FiUpload, FiTrash2, FiVideo } from "react-icons/fi";
 
 interface EditArtistModalProps {
   artist: Artist;
@@ -146,9 +147,11 @@ export default function EditArtistModal({
               </label>
               <div className="relative w-20 h-20 rounded-full border-2 border-dashed border-gray-300 dark:border-gray-600 mb-2 overflow-hidden">
                 {previewAvatar ? (
-                  <img
+                  <Image
                     src={previewAvatar}
                     alt="Avatar preview"
+                                width={140}
+            height={140}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -278,7 +281,7 @@ export default function EditArtistModal({
               <div className="space-y-2">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Existing Media</h5>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {media.map((item, index) => (
+                  {media.map((item) => (
                     <div key={item.id} className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2">
                       <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
                         {item.type === 'video' ? (

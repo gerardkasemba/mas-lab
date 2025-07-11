@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase";
 import { Artist, MASFramework, Session, Media } from "@/lib/types";
 import { FiEdit, FiTrash2, FiUser, FiSearch, FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import EditArtistModal from "./EditArtistModal";
+import Image from "next/image";
 
 export default function ViewCreatedUsers() {
   const [artists, setArtists] = useState<Artist[]>([]);
@@ -242,8 +243,10 @@ export default function ViewCreatedUsers() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
                         {artist.avatar_url ? (
-                          <img
+                          <Image
                             className="h-10 w-10 rounded-full object-cover"
+                            width={40}
+                            height={40}
                             src={artist.avatar_url}
                             alt={artist.name}
                           />

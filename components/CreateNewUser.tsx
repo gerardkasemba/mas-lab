@@ -3,8 +3,6 @@
 import { useState, useCallback } from "react";
 import { createClient } from "@/lib/supabase";
 import { AdminFormData, Artist } from "@/lib/types";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
 import Image from "next/image";
 import { 
   FiUpload,
@@ -31,32 +29,8 @@ export default function CreateNewUser() {
   });
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitting] = useState(false);
 
-  // Initialize TipTap editors with more extensions
-  const projectDescriptionEditor = useEditor({
-    extensions: [StarterKit],
-    content: formData.project_description,
-    onUpdate: ({ editor }) => {
-      setFormData({ ...formData, project_description: editor.getHTML() });
-    },
-  });
-
-  const campaignStatementEditor = useEditor({
-    extensions: [StarterKit],
-    content: formData.campaign_statement,
-    onUpdate: ({ editor }) => {
-      setFormData({ ...formData, campaign_statement: editor.getHTML() });
-    },
-  });
-
-  const sessionSummaryEditor = useEditor({
-    extensions: [StarterKit],
-    content: formData.session_summary,
-    onUpdate: ({ editor }) => {
-      setFormData({ ...formData, session_summary: editor.getHTML() });
-    },
-  });
 
   const handleAvatarChange = (file: File | null) => {
     if (file) {
