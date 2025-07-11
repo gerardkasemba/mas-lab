@@ -4,7 +4,7 @@ import { useState } from "react";
 import CreateNewUser from "@/components/CreateNewUser";
 import ViewCreatedUsers from "@/components/ViewCreatedUsers";
 import ThemeToggle from "@/components/ThemeToggle";
-import { UserIcon, UsersIcon } from "@heroicons/react/24/outline";
+import { FiUser, FiUsers } from "react-icons/fi";
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState<"create" | "view">("create");
@@ -38,7 +38,7 @@ export default function AdminDashboard() {
                 ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-300" 
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300"}`}
             >
-              <UserIcon className="h-5 w-5 mr-2" />
+              <FiUser className="h-5 w-5 mr-2" />
               Create User
             </button>
             <button
@@ -47,7 +47,7 @@ export default function AdminDashboard() {
                 ? "border-blue-500 text-blue-600 dark:border-blue-400 dark:text-blue-300" 
                 : "border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300"}`}
             >
-              <UsersIcon className="h-5 w-5 mr-2" />
+              <FiUsers className="h-5 w-5 mr-2" />
               View Users
             </button>
           </div>
