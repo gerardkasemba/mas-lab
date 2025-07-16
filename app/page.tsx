@@ -83,7 +83,7 @@ export default function WallView() {
               <motion.h1 
                 className="text-2xl font-bold bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent tracking-tight"
               >
-                ARTISTS WALL
+                MINDART ARTISTS LAB.
               </motion.h1>
             </motion.div>
 
