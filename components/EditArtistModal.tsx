@@ -1,8 +1,8 @@
-// components/EditArtistModal.tsx
 "use client";
 
 import { useState } from "react";
 import Image from "next/image";
+import { createClient } from "@/lib/supabase";
 import { Artist, MASFramework, Session, Media } from "@/lib/types";
 import { FiX, FiImage, FiUpload, FiTrash2, FiVideo } from "react-icons/fi";
 
@@ -17,35 +17,42 @@ interface EditArtistModalProps {
     framework: MASFramework;
     session: Session;
     media: File[];
+    avatarFile?: File | undefined; // Type is already File | undefined
   }) => Promise<void>;
 }
 
-export default function EditArtistModal({ 
-  artist, 
-  framework, 
-  sessions, 
-  media, 
-  onClose, 
-  onSave 
+export default function EditArtistModal({
+  artist,
+  framework,
+  sessions,
+  media,
+  onClose,
+  onSave,
 }: EditArtistModalProps) {
   const [editedArtist, setEditedArtist] = useState<Artist>(artist);
   const [editedFramework, setEditedFramework] = useState<MASFramework>(framework);
-  const [editedSession, setEditedSession] = useState<Session>(sessions[0] || {
-    id: '',
-    artist_id: artist.id,
-    summary: '',
-    date: new Date().toISOString(),
-    themes: []
-  });
+  const [editedSession, setEditedSession] = useState<Session>(
+    sessions[0] || {
+      id: "",
+      artist_id: artist.id,
+      summary: "",
+      date: new Date().toISOString(),
+      themes: [],
+    }
+  );
   const [newMedia, setNewMedia] = useState<File[]>([]);
+  const [avatarFile, setAvatarFile] = useState<File | undefined>(undefined); // Changed from File | null to File | undefined
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(artist.avatar_url);
   const [isSaving, setIsSaving] = useState(false);
 
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const file = e.target.files[0];
-      setEditedArtist({ ...editedArtist, avatar_url: URL.createObjectURL(file) });
-      setPreviewAvatar(URL.createObjectURL(file));
+      setAvatarFile(file); // Store the file
+      setPreviewAvatar(URL.createObjectURL(file)); // Set preview URL
+    } else {
+      setAvatarFile(undefined); // Reset to undefined when no file is selected
+      setPreviewAvatar(null);
     }
   };
 
@@ -65,11 +72,35 @@ export default function EditArtistModal({
   const handleSave = async () => {
     setIsSaving(true);
     try {
+      let avatar_url = editedArtist.avatar_url; // Keep existing URL by default
+      const supabase = createClient();
+
+      // Upload new avatar to Supabase if one was selected
+      if (avatarFile) {
+        const avatarPath = `avatars/${crypto.randomUUID()}/${avatarFile.name}`;
+        const { data, error } = await supabase.storage
+          .from("lab-upload")
+          .upload(avatarPath, avatarFile);
+        if (error) {
+          console.error("Avatar upload error:", error);
+          throw new Error("Failed to upload avatar");
+        }
+        if (data) {
+          // Get public URL for the avatar
+          const { data: publicUrlData } = supabase.storage
+            .from("lab-upload")
+            .getPublicUrl(avatarPath);
+          avatar_url = publicUrlData.publicUrl; // Update with Supabase URL
+        }
+      }
+
+      // Pass updated data to onSave, including the avatar file and updated avatar_url
       await onSave({
-        artist: editedArtist,
+        artist: { ...editedArtist, avatar_url }, // Update artist with Supabase URL
         framework: editedFramework,
         session: editedSession,
-        media: newMedia
+        media: newMedia,
+        avatarFile, // Now correctly typed as File | undefined
       });
       onClose();
     } catch (error) {
@@ -93,7 +124,7 @@ export default function EditArtistModal({
             <FiX className="h-6 w-6" />
           </button>
         </div>
-        
+
         <div className="p-6 space-y-8">
           {/* Basic Info */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -105,7 +136,7 @@ export default function EditArtistModal({
                 type="text"
                 required
                 value={editedArtist.name}
-                onChange={(e) => setEditedArtist({...editedArtist, name: e.target.value})}
+                onChange={(e) => setEditedArtist({ ...editedArtist, name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
               />
             </div>
@@ -118,7 +149,7 @@ export default function EditArtistModal({
                 type="text"
                 required
                 value={editedArtist.project_name}
-                onChange={(e) => setEditedArtist({...editedArtist, project_name: e.target.value})}
+                onChange={(e) => setEditedArtist({ ...editedArtist, project_name: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
               />
             </div>
@@ -129,14 +160,18 @@ export default function EditArtistModal({
               </label>
               <select
                 value={editedArtist.current_stage}
-                onChange={(e) => setEditedArtist({
-                  ...editedArtist, 
-                  current_stage: e.target.value as Artist["current_stage"]
-                })}
+                onChange={(e) =>
+                  setEditedArtist({
+                    ...editedArtist,
+                    current_stage: e.target.value as Artist["current_stage"],
+                  })
+                }
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
               >
                 {["Ideation", "Branding", "Production", "Launch"].map((stage) => (
-                  <option key={stage} value={stage}>{stage}</option>
+                  <option key={stage} value={stage}>
+                    {stage}
+                  </option>
                 ))}
               </select>
             </div>
@@ -150,8 +185,8 @@ export default function EditArtistModal({
                   <Image
                     src={previewAvatar}
                     alt="Avatar preview"
-                                width={140}
-            height={140}
+                    width={140}
+                    height={140}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -181,7 +216,9 @@ export default function EditArtistModal({
               </label>
               <textarea
                 value={editedArtist.project_description}
-                onChange={(e) => setEditedArtist({...editedArtist, project_description: e.target.value})}
+                onChange={(e) =>
+                  setEditedArtist({ ...editedArtist, project_description: e.target.value })
+                }
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
               />
             </div>
@@ -192,7 +229,9 @@ export default function EditArtistModal({
               </label>
               <textarea
                 value={editedArtist.campaign_statement}
-                onChange={(e) => setEditedArtist({...editedArtist, campaign_statement: e.target.value})}
+                onChange={(e) =>
+                  setEditedArtist({ ...editedArtist, campaign_statement: e.target.value })
+                }
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
               />
             </div>
@@ -202,23 +241,25 @@ export default function EditArtistModal({
           <div className="space-y-4">
             <h4 className="text-md font-medium text-gray-900 dark:text-white">MAS Framework</h4>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {(['values', 'goals', 'brand'] as const).map((field) => (
+              {(["values", "goals", "brand"] as const).map((field) => (
                 <div key={field}>
                   <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 capitalize">
                     {field}*
                   </label>
                   <textarea
-                    value={editedFramework[field].join(', ')}
-                    onChange={(e) => setEditedFramework({
-                      ...editedFramework,
-                      [field]: e.target.value.split(',').map(item => item.trim())
-                    })}
+                    value={editedFramework[field].join(", ")}
+                    onChange={(e) =>
+                      setEditedFramework({
+                        ...editedFramework,
+                        [field]: e.target.value.split(",").map((item) => item.trim()),
+                      })
+                    }
                     className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[80px]"
                     placeholder={`Enter ${field}, separated by commas`}
                   />
                   <div className="mt-2 flex flex-wrap gap-2">
                     {editedFramework[field].map((item, idx) => (
-                      <span 
+                      <span
                         key={idx}
                         className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
                       >
@@ -240,7 +281,7 @@ export default function EditArtistModal({
               </label>
               <textarea
                 value={editedSession.summary}
-                onChange={(e) => setEditedSession({...editedSession, summary: e.target.value})}
+                onChange={(e) => setEditedSession({ ...editedSession, summary: e.target.value })}
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
               />
             </div>
@@ -251,17 +292,19 @@ export default function EditArtistModal({
               </label>
               <input
                 type="text"
-                value={editedSession.themes.join(', ')}
-                onChange={(e) => setEditedSession({
-                  ...editedSession,
-                  themes: e.target.value.split(',').map(item => item.trim())
-                })}
+                value={editedSession.themes.join(", ")}
+                onChange={(e) =>
+                  setEditedSession({
+                    ...editedSession,
+                    themes: e.target.value.split(",").map((item) => item.trim()),
+                  })
+                }
                 className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
                 placeholder="theme1, theme2, theme3"
               />
               <div className="mt-2 flex flex-wrap gap-2">
                 {editedSession.themes.map((theme, idx) => (
-                  <span 
+                  <span
                     key={idx}
                     className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
                   >
@@ -275,22 +318,25 @@ export default function EditArtistModal({
           {/* Media */}
           <div className="space-y-4">
             <h4 className="text-md font-medium text-gray-900 dark:text-white">Media</h4>
-            
+
             {/* Existing Media */}
             {media.length > 0 && (
               <div className="space-y-2">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Existing Media</h5>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {media.map((item) => (
-                    <div key={item.id} className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2">
+                    <div
+                      key={item.id}
+                      className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2"
+                    >
                       <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                        {item.type === 'video' ? (
+                        {item.type === "video" ? (
                           <FiVideo className="h-10 w-10 text-gray-400" />
                         ) : (
                           <FiImage className="h-10 w-10 text-gray-400" />
                         )}
                       </div>
-                      <p className="text-xs truncate mt-1">{item.description || 'No description'}</p>
+                      <p className="text-xs truncate mt-1">{item.description || "No description"}</p>
                     </div>
                   ))}
                 </div>
@@ -314,14 +360,17 @@ export default function EditArtistModal({
                   />
                 </label>
               </div>
-              
+
               {/* New Media Preview */}
               {newMedia.length > 0 && (
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4">
                   {newMedia.map((file, index) => (
-                    <div key={index} className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2">
+                    <div
+                      key={index}
+                      className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2"
+                    >
                       <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                        {file.type.includes('video') ? (
+                        {file.type.includes("video") ? (
                           <FiVideo className="h-10 w-10 text-gray-400" />
                         ) : (
                           <FiImage className="h-10 w-10 text-gray-400" />
@@ -358,13 +407,31 @@ export default function EditArtistModal({
           >
             {isSaving ? (
               <>
-                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                <svg
+                  className="animate-spin -ml-1 mr-2 h-4 w-4 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  ></path>
                 </svg>
                 Saving...
               </>
-            ) : 'Save Changes'}
+            ) : (
+              "Save Changes"
+            )}
           </button>
         </div>
       </div>
