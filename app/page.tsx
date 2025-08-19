@@ -4,11 +4,9 @@ import { useState, useEffect } from "react";
 import { createClient } from "@/lib/supabase";
 import ArtistCard from "@/components/ArtistCard";
 import ProfileView from "@/components/ProfileView";
-import ThemeToggle from "@/components/ThemeToggle";
 import { AnimatePresence, motion } from "framer-motion";
 import { Artist, MASFramework, Session, Media } from "@/lib/types";
 import Header from "@/components/UI/Header";
-import SectionHeader from "@/components/UI/SectionHeader";
 import ContentHeader from "@/components/UI/SectionHeader";
 
 export default function WallView() {
