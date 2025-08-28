@@ -79,8 +79,12 @@ export default function EditArtistModal({
       setMediaPreviews(previews);
     };
     generatePreviews();
-    return () => mediaPreviews.forEach(({ preview }) => URL.revokeObjectURL(preview));
-  }, [newMedia]);
+    
+    // Cleanup function to revoke object URLs
+    return () => {
+      mediaPreviews.forEach(({ preview }) => URL.revokeObjectURL(preview));
+    };
+  }, [newMedia, mediaPreviews]); // Added mediaPreviews to dependencies
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
@@ -290,11 +294,6 @@ export default function EditArtistModal({
     } finally {
       setIsSaving(false);
     }
-  };
-
-  const getMediaIcon = (mediaItem: Media) => {
-    if (mediaItem.type === "video") return <FiVideo className="h-10 w-10 text-red-500" />;
-    return <FiImage className="h-10 w-10 text-blue-500" />;
   };
 
   return (
