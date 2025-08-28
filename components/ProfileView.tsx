@@ -1,22 +1,84 @@
 "use client"
 import { useState } from "react";
 import Image from "next/image";
-import { Artist, MASFramework, Session, Media } from "@/lib/types";
+import { Artist, MASFramework, Session, Media as MediaType } from "@/lib/types";
 
 interface ProfileProps {
   artist: Artist;
   framework: MASFramework;
   sessions: Session[];
-  media: Media[];
+  media: MediaType[];
+}
+
+// Extended type for better file type handling
+interface EnhancedMedia extends Omit<MediaType, 'type'> {
+  enhancedType: 'image' | 'video' | 'document' | 'other';
+  fileExtension: string;
 }
 
 export default function ProfileView({ artist, framework, sessions, media }: ProfileProps) {
-
   const [viewMode, setViewMode] = useState<'circle' | 'list'>('circle');
   const [expandedKey, setExpandedKey] = useState<string | null>(null);
+  const [selectedMedia, setSelectedMedia] = useState<EnhancedMedia | null>(null);
+  const [mediaViewMode, setMediaViewMode] = useState<'grid' | 'list'>('grid');
+
+  // Enhance media with better type detection
+  const enhancedMedia: EnhancedMedia[] = media.map(item => {
+    const url = item.url.toLowerCase();
+    let enhancedType: EnhancedMedia['enhancedType'] = 'other';
+    let fileExtension = 'file';
+    
+    // Detect file type based on URL extension
+    if (url.match(/\.(jpg|jpeg|png|gif|webp|bmp|svg)$/)) {
+      enhancedType = 'image';
+    } else if (url.match(/\.(mp4|mov|avi|wmv|webm|mkv|flv|m4v)$/)) {
+      enhancedType = 'video';
+    } else if (url.match(/\.(pdf|doc|docx|txt|rtf|odt|pages)$/)) {
+      enhancedType = 'document';
+    }
+    
+    // Get file extension
+    const extensionMatch = url.match(/\.([a-z0-9]+)$/);
+    if (extensionMatch) {
+      fileExtension = extensionMatch[1].toUpperCase();
+    }
+    
+    // Map the original type to our enhanced type if needed
+    if (item.type === 'photo' || item.type === 'moodboard') {
+      enhancedType = 'image';
+    } else if (item.type === 'video') {
+      enhancedType = 'video';
+    }
+    
+    return {
+      ...item,
+      enhancedType,
+      fileExtension
+    };
+  });
+
+  // Group media by enhanced type
+  const mediaByType = {
+    image: enhancedMedia.filter(item => item.enhancedType === 'image'),
+    video: enhancedMedia.filter(item => item.enhancedType === 'video'),
+    document: enhancedMedia.filter(item => item.enhancedType === 'document'),
+    other: enhancedMedia.filter(item => item.enhancedType === 'other')
+  };
+
+  // Get icon for file type
+  const getFileIcon = (enhancedType: EnhancedMedia['enhancedType']) => {
+    switch (enhancedType) {
+      case 'image': return '🖼️';
+      case 'video': return '🎬';
+      case 'document': return '📄';
+      default: return '📁';
+    }
+  };
+
   return (
-    <div className="space-y-8 max-w-4xl mx-auto">
+    <div className="space-y-8 max-w-6xl mx-auto p-4">
       {/* Artist Profile Header - Left Aligned */}
+      <div className="flex flex-col md:flex-row gap-6 items-start">
         <div className="relative text-left">
           <Image
             src={artist.avatar_url || "/placeholder.jpg"}
@@ -39,8 +101,6 @@ export default function ProfileView({ artist, framework, sessions, media }: Prof
             {artist.current_stage}
           </span>
         </div>
-      <div className="flex flex-col md:flex-row gap-6 items-start">
-
         
         <div className="flex-1">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
@@ -170,7 +230,7 @@ export default function ProfileView({ artist, framework, sessions, media }: Prof
           {sessions.map((session) => (
             <div
               key={session.id}
-              className="bg-white dark:bg-gray-800 rounded-xl  transition-shadow"
+              className="bg-white dark:bg-gray-800 rounded-xl p-4 shadow-sm transition-shadow"
             >
               <div className="flex justify-between items-start">
                 <h3 className="font-medium text-gray-900 dark:text-gray-100">
@@ -202,41 +262,249 @@ export default function ProfileView({ artist, framework, sessions, media }: Prof
 
       {/* Media Gallery */}
       <div className="mt-12">
-        <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100 mb-4">
-          Media Gallery
-        </h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {media.map((item) => (
-            <div
-              key={item.id}
-              className="relative rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all group"
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-gray-100">
+            Media Gallery
+          </h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setMediaViewMode('grid')}
+              className={`p-2 rounded ${mediaViewMode === 'grid' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}
             >
-              {item.type === "video" ? (
-                <video
-                  src={item.url}
-                  controls
-                  className="w-full h-48 object-cover"
-                />
-              ) : (
-                <>
-                  <Image
-                    src={item.url}
-                    alt={item.description || ""}
-                    width={400}
-                    height={300}
-                    className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
-                  />
-                  {item.description && (
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end p-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                      <p className="text-white text-sm">{item.description}</p>
+              Grid View
+            </button>
+            <button
+              onClick={() => setMediaViewMode('list')}
+              className={`p-2 rounded ${mediaViewMode === 'list' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200' : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'}`}
+            >
+              List View
+            </button>
+          </div>
+        </div>
+
+        {/* Media type tabs */}
+        <div className="flex flex-wrap gap-2 mb-6">
+          <button className="px-3 py-1 rounded-full bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200 text-sm">
+            All ({enhancedMedia.length})
+          </button>
+          <button className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 text-sm">
+            Images ({mediaByType.image.length})
+          </button>
+          <button className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 text-sm">
+            Videos ({mediaByType.video.length})
+          </button>
+          <button className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 text-sm">
+            Documents ({mediaByType.document.length})
+          </button>
+          <button className="px-3 py-1 rounded-full bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 text-sm">
+            Other ({mediaByType.other.length})
+          </button>
+        </div>
+
+        {mediaViewMode === 'grid' ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {enhancedMedia.map((item) => (
+              <div
+                key={item.id}
+                className="relative rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all group bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700"
+                onClick={() => setSelectedMedia(item)}
+              >
+                {item.enhancedType === "video" ? (
+                  <div className="relative">
+                    <video className="w-full h-48 object-cover">
+                      <source src={item.url} />
+                    </video>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="bg-black bg-opacity-50 rounded-full p-3">
+                        <svg className="w-8 h-8 text-white" fill="currentColor" viewBox="0 0 20 20">
+                          <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                        </svg>
+                      </div>
                     </div>
-                  )}
-                </>
+                  </div>
+                ) : item.enhancedType === "image" ? (
+                  <>
+                    <Image
+                      src={item.url}
+                      alt={item.description || ""}
+                      width={400}
+                      height={300}
+                      className="w-full h-48 object-cover group-hover:scale-105 transition-transform duration-300"
+                    />
+                    {item.description && (
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent flex items-end p-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <p className="text-white text-sm">{item.description}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="h-48 flex flex-col items-center justify-center p-4">
+                    <div className="text-4xl mb-2">{getFileIcon(item.enhancedType)}</div>
+                    <div className="text-xs bg-gray-200 dark:bg-gray-700 px-2 py-1 rounded-md font-mono mb-2">
+                      {item.fileExtension}
+                    </div>
+                    <p className="text-sm text-gray-700 dark:text-gray-300 text-center truncate w-full">
+                      {item.description || "Document"}
+                    </p>
+                  </div>
+                )}
+                
+                <div className="p-3">
+                  <p className="text-sm font-medium text-gray-900 dark:text-gray-100 truncate">
+                    {item.description || "Untitled"}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    {new Date(item.created_at || '').toLocaleDateString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow overflow-hidden">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
+                <tr>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Type
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Name
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Description
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Date
+                  </th>
+                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
+                {enhancedMedia.map((item) => (
+                  <tr key={item.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-lg">
+                        {getFileIcon(item.enhancedType)}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900 dark:text-gray-100">
+                        {item.description || "Untitled"}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="text-sm text-gray-700 dark:text-gray-300 max-w-xs truncate">
+                        {item.description || "No description"}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-700 dark:text-gray-300">
+                      {new Date(item.created_at || '').toLocaleDateString()}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      <button
+                        onClick={() => setSelectedMedia(item)}
+                        className="text-blue-600 dark:text-blue-400 hover:text-blue-900 dark:hover:text-blue-300 mr-3"
+                      >
+                        View
+                      </button>
+                      <a
+                        href={item.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-300"
+                      >
+                        Download
+                      </a>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {enhancedMedia.length === 0 && (
+          <div className="text-center py-12 bg-gray-50 dark:bg-gray-800 rounded-lg">
+            <svg className="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+            <h3 className="mt-2 text-sm font-medium text-gray-900 dark:text-gray-100">No media files</h3>
+            <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">Get started by uploading some media.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Media Modal */}
+      {selectedMedia && (
+        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
+          <div className="bg-white dark:bg-gray-800 rounded-lg max-w-4xl w-full max-h-screen overflow-auto">
+            <div className="flex justify-between items-center p-4 border-b border-gray-200 dark:border-gray-700">
+              <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                {selectedMedia.description || "Media Preview"}
+              </h3>
+              <button
+                onClick={() => setSelectedMedia(null)}
+                className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
+              >
+                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div className="p-4">
+              {selectedMedia.enhancedType === "video" ? (
+                <video controls className="w-full h-auto max-h-[70vh]">
+                  <source src={selectedMedia.url} />
+                  Your browser does not support the video tag.
+                </video>
+              ) : selectedMedia.enhancedType === "image" ? (
+                <div className="flex justify-center">
+                  <Image
+                    src={selectedMedia.url}
+                    alt={selectedMedia.description || ""}
+                    width={800}
+                    height={600}
+                    className="max-w-full h-auto max-h-[70vh]"
+                  />
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center p-8">
+                  <div className="text-6xl mb-4">{getFileIcon(selectedMedia.enhancedType)}</div>
+                  <div className="text-lg bg-gray-200 dark:bg-gray-700 px-4 py-2 rounded-md font-mono mb-4">
+                    {selectedMedia.fileExtension}
+                  </div>
+                  <p className="text-gray-700 dark:text-gray-300 mb-6 text-center">
+                    This file cannot be previewed in the browser.
+                  </p>
+                  <a
+                    href={selectedMedia.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                  >
+                    Download File
+                  </a>
+                </div>
               )}
             </div>
-          ))}
+            
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+              <p className="text-sm text-gray-700 dark:text-gray-300">
+                <strong>Uploaded:</strong> {new Date(selectedMedia.created_at || '').toLocaleString()}
+              </p>
+              {selectedMedia.description && (
+                <p className="mt-2 text-sm text-gray-700 dark:text-gray-300">
+                  <strong>Description:</strong> {selectedMedia.description}
+                </p>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

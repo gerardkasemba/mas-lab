@@ -10,6 +10,7 @@ import Image from "next/image";
 export default function ViewCreatedUsers() {
   const [artists, setArtists] = useState<Artist[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
   const [editingArtist, setEditingArtist] = useState<{
     artist: Artist;
     framework?: MASFramework;
@@ -26,10 +27,12 @@ export default function ViewCreatedUsers() {
       const supabase = createClient();
       
       try {
-        const { data: artists } = await supabase.from("artists").select("*");
+        const { data: artists, error } = await supabase.from("artists").select("*");
+        if (error) throw error;
         if (artists) setArtists(artists as Artist[]);
       } catch (error) {
         console.error("Error fetching artists:", error);
+        alert("Failed to load artists. Please try again.");
       } finally {
         setIsLoading(false);
       }
@@ -65,26 +68,55 @@ export default function ViewCreatedUsers() {
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm("Are you sure you want to delete this artist and all associated data?")) {
-      const supabase = createClient();
-      try {
-        // Delete related records first
-        await supabase.from("mas_frameworks").delete().eq("artist_id", id);
-        await supabase.from("sessions").delete().eq("artist_id", id);
-        await supabase.from("media").delete().eq("artist_id", id);
-        
-        // Then delete the artist
-        const { error } = await supabase.from("artists").delete().eq("id", id);
-        
-        if (!error) {
-          setArtists(artists.filter((artist) => artist.id !== id));
+    if (!confirm("Are you sure you want to delete this artist and all associated data?")) return;
+
+    const supabase = createClient();
+    const previousArtists = artists;
+    setIsDeleting(id);
+    setArtists(artists.filter((artist) => artist.id !== id));
+
+    try {
+      // Fetch media URLs to delete from storage
+      const { data: media, error: mediaError } = await supabase
+        .from("media")
+        .select("url")
+        .eq("artist_id", id);
+
+      if (mediaError) throw mediaError;
+
+      // Delete associated files from storage
+      if (media && media.length > 0) {
+        const filePaths = media
+          .map((item) => item.url.split('/').pop())
+          .filter((path): path is string => !!path);
+        if (filePaths.length > 0) {
+          const { error: storageError } = await supabase.storage
+            .from("lab-upload")
+            .remove(filePaths);
+          if (storageError) throw storageError;
+        }
+      }
+
+      // Delete artist (cascades to mas_frameworks, sessions, media due to ON DELETE CASCADE)
+      const { error } = await supabase.from("artists").delete().eq("id", id);
+
+      if (error) {
+        setArtists(previousArtists);
+        if (error.code === "42501") {
+          alert("You don't have permission to delete this artist.");
+        } else if (error.code === "P0001") {
+          alert("Artist not found.");
         } else {
           alert("Failed to delete artist. Please try again.");
         }
-      } catch (error) {
-        console.error("Error deleting artist:", error);
-        alert("An error occurred while deleting the artist.");
+        throw error;
       }
+    } catch (error) {
+      console.error("Error deleting artist:", error);
+      setArtists(previousArtists);
+      alert("An unexpected error occurred while deleting the artist.");
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -100,6 +132,7 @@ export default function ViewCreatedUsers() {
       });
     } catch (error) {
       console.error("Error preparing edit:", error);
+      alert("Failed to load artist details for editing.");
     } finally {
       setIsLoading(false);
     }
@@ -143,7 +176,11 @@ export default function ViewCreatedUsers() {
         if (sessionError) throw sessionError;
       }
 
-      // Handle media uploads would go here...
+      // Handle media uploads (not implemented in original, placeholder)
+      if (updatedData.media.length > 0) {
+        // Add your media upload logic here
+        console.log("Media uploads to be implemented:", updatedData.media);
+      }
 
       // Update local state
       setArtists(artists.map(a => 
@@ -269,9 +306,6 @@ export default function ViewCreatedUsers() {
                       <div className="text-sm text-gray-900 dark:text-white">
                         {artist.project_name}
                       </div>
-                      {/* <div className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1">
-                        {artist.project_description}
-                      </div> */}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`px-2.5 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${
@@ -295,13 +329,15 @@ export default function ViewCreatedUsers() {
                           onClick={() => handleEdit(artist)}
                           className="text-primary-600 dark:text-primary-400 hover:text-primary-900 dark:hover:text-primary-300 p-1 rounded-md hover:bg-primary-50 dark:hover:bg-primary-900/20"
                           title="Edit"
+                          disabled={isDeleting === artist.id}
                         >
                           <FiEdit className="h-5 w-5" />
                         </button>
                         <button
                           onClick={() => handleDelete(artist.id)}
-                          className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20"
+                          className={`text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300 p-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 ${isDeleting === artist.id ? 'opacity-50 cursor-not-allowed' : ''}`}
                           title="Delete"
+                          disabled={isDeleting === artist.id}
                         >
                           <FiTrash2 className="h-5 w-5" />
                         </button>
@@ -349,12 +385,12 @@ export default function ViewCreatedUsers() {
       {/* Edit Modal */}
       {editingArtist && (
         <EditArtistModal
-        artist={editingArtist.artist}
-        framework={editingArtist.framework || {} as MASFramework} // Provide empty object as default
-        sessions={editingArtist.sessions || []} // Provide empty array as default
-        media={editingArtist.media || []}      // Provide empty array as default
-        onClose={() => setEditingArtist(null)}
-        onSave={handleUpdate}
+          artist={editingArtist.artist}
+          framework={editingArtist.framework || {} as MASFramework}
+          sessions={editingArtist.sessions || []}
+          media={editingArtist.media || []}
+          onClose={() => setEditingArtist(null)}
+          onSave={handleUpdate}
         />
       )}
     </div>

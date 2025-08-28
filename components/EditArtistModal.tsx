@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Image from "next/image";
 import { createClient } from "@/lib/supabase";
 import { Artist, MASFramework, Session, Media } from "@/lib/types";
-import { FiX, FiImage, FiUpload, FiTrash2, FiVideo } from "react-icons/fi";
+import { FiX, FiImage, FiUpload, FiTrash2, FiVideo, FiFile, FiDownload } from "react-icons/fi";
+import toast from 'react-hot-toast';
 
 interface EditArtistModalProps {
   artist: Artist;
@@ -17,7 +18,7 @@ interface EditArtistModalProps {
     framework: MASFramework;
     session: Session;
     media: File[];
-    avatarFile?: File | undefined; // Type is already File | undefined
+    avatarFile?: File;
   }) => Promise<void>;
 }
 
@@ -41,73 +42,259 @@ export default function EditArtistModal({
     }
   );
   const [newMedia, setNewMedia] = useState<File[]>([]);
-  const [avatarFile, setAvatarFile] = useState<File | undefined>(undefined); // Changed from File | null to File | undefined
+  const [avatarFile, setAvatarFile] = useState<File | undefined>(undefined);
   const [previewAvatar, setPreviewAvatar] = useState<string | null>(artist.avatar_url);
   const [isSaving, setIsSaving] = useState(false);
+  const [mediaPreviews, setMediaPreviews] = useState<{ file: File; preview: string }[]>([]);
+  const [mediaToDelete, setMediaToDelete] = useState<string[]>([]);
+  const [existingMedia, setExistingMedia] = useState<Media[]>(media);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const validateVideoDuration = (file: File): Promise<boolean> => {
+    return new Promise((resolve) => {
+      if (!file.type.startsWith("video/")) return resolve(true);
+      const video = document.createElement("video");
+      video.preload = "metadata";
+      video.onloadedmetadata = () => {
+        window.URL.revokeObjectURL(video.src);
+        resolve(video.duration <= 600);
+      };
+      video.onerror = () => resolve(false);
+      video.src = URL.createObjectURL(file);
+    });
+  };
+
+  useEffect(() => {
+    const generatePreviews = async () => {
+      const previews = await Promise.all(
+        newMedia.map(async (file) => ({
+          file,
+          preview: file.type.startsWith("image/") || file.type.startsWith("video/")
+            ? URL.createObjectURL(file)
+            : file.type === "application/pdf"
+            ? "/pdf-icon.png"
+            : "/document-icon.png",
+        }))
+      );
+      setMediaPreviews(previews);
+    };
+    generatePreviews();
+    return () => mediaPreviews.forEach(({ preview }) => URL.revokeObjectURL(preview));
+  }, [newMedia]);
+
+  const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files?.[0]) {
       const file = e.target.files[0];
-      setAvatarFile(file); // Store the file
-      setPreviewAvatar(URL.createObjectURL(file)); // Set preview URL
+      if (!file.type.startsWith("image/")) {
+        toast.error("Please select an image file for the avatar.");
+        return;
+      }
+      setAvatarFile(file);
+      setPreviewAvatar(URL.createObjectURL(file));
     } else {
-      setAvatarFile(undefined); // Reset to undefined when no file is selected
-      setPreviewAvatar(null);
+      setAvatarFile(undefined);
+      setPreviewAvatar(artist.avatar_url);
     }
   };
 
-  const handleMediaUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleMediaUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) {
-      setNewMedia([...newMedia, ...Array.from(e.target.files)]);
+      const files = Array.from(e.target.files);
+      const validFiles: File[] = [];
+      for (const file of files) {
+        if (file.size > 50 * 1024 * 1024) {
+          toast.error(`File "${file.name}" exceeds 50MB limit.`);
+          continue;
+        }
+        if (file.type.startsWith("video/")) {
+          const isValidDuration = await validateVideoDuration(file);
+          if (!isValidDuration) {
+            toast.error(`Video "${file.name}" exceeds 10 minutes.`);
+            continue;
+          }
+        }
+        if (
+          file.type.startsWith("image/") ||
+          file.type === "application/pdf" ||
+          file.type.startsWith("video/") ||
+          [
+            "application/msword",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "text/plain",
+          ].includes(file.type)
+        ) {
+          validFiles.push(file);
+        } else {
+          toast.error(`File "${file.name}" is not a supported type.`);
+        }
+      }
+      setNewMedia([...newMedia, ...validFiles]);
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
   const removeMedia = (index: number, isNew: boolean) => {
     if (isNew) {
       setNewMedia(newMedia.filter((_, i) => i !== index));
+      setMediaPreviews(mediaPreviews.filter((_, i) => i !== index));
+    } else {
+      const mediaToRemove = existingMedia[index];
+      setMediaToDelete([...mediaToDelete, mediaToRemove.id]);
+      setExistingMedia(existingMedia.filter((_, i) => i !== index));
+      toast.success("Media marked for deletion. Click Save to confirm.");
     }
-    // Note: For existing media, you'd need to handle deletion from storage
   };
 
   const handleSave = async () => {
+    if (
+      !editedArtist.name ||
+      !editedArtist.project_name ||
+      !editedArtist.project_description ||
+      !editedArtist.campaign_statement ||
+      !editedArtist.current_stage ||
+      editedFramework.values.length === 0 ||
+      editedFramework.goals.length === 0 ||
+      editedFramework.brand.length === 0 ||
+      !editedSession.summary ||
+      editedSession.themes.length === 0
+    ) {
+      toast.error("Please fill in all required fields.");
+      return;
+    }
+
     setIsSaving(true);
     try {
-      let avatar_url = editedArtist.avatar_url; // Keep existing URL by default
       const supabase = createClient();
+      let avatar_url = editedArtist.avatar_url;
 
-      // Upload new avatar to Supabase if one was selected
+      // Upload new avatar if selected
       if (avatarFile) {
-        const avatarPath = `avatars/${crypto.randomUUID()}/${avatarFile.name}`;
-        const { data, error } = await supabase.storage
+        const avatarPath = `avatars/${artist.id}/${Date.now()}_${avatarFile.name}`;
+        const { error: uploadError } = await supabase.storage
           .from("lab-upload")
-          .upload(avatarPath, avatarFile);
-        if (error) {
-          console.error("Avatar upload error:", error);
-          throw new Error("Failed to upload avatar");
+          .upload(avatarPath, avatarFile, { cacheControl: "3600", upsert: true });
+        
+        if (uploadError) {
+          console.error("Avatar upload error:", uploadError);
+          throw new Error(`Failed to upload avatar: ${uploadError.message}`);
         }
-        if (data) {
-          // Get public URL for the avatar
-          const { data: publicUrlData } = supabase.storage
+        
+        const { data: publicUrlData } = supabase.storage
+          .from("lab-upload")
+          .getPublicUrl(avatarPath);
+        avatar_url = publicUrlData.publicUrl;
+      }
+
+      // Delete media marked for removal from both storage and database
+      if (mediaToDelete.length > 0) {
+        // First get the file paths from the media records
+        const { data: mediaToRemove, error: fetchError } = await supabase
+          .from("media")
+          .select("id, url")
+          .in("id", mediaToDelete);
+        
+        if (fetchError) {
+          console.error("Error fetching media to delete:", fetchError);
+          throw new Error(`Failed to fetch media for deletion: ${fetchError.message}`);
+        }
+        
+        // Extract file paths from URLs
+        const filePaths = mediaToRemove.map(media => {
+          const urlParts = media.url.split('/');
+          // Get the path after the bucket name
+          return urlParts.slice(urlParts.indexOf('lab-upload') + 1).join('/');
+        });
+        
+        // Delete from storage
+        if (filePaths.length > 0) {
+          const { error: storageError } = await supabase.storage
             .from("lab-upload")
-            .getPublicUrl(avatarPath);
-          avatar_url = publicUrlData.publicUrl; // Update with Supabase URL
+            .remove(filePaths);
+          
+          if (storageError) {
+            console.error("Storage deletion error:", storageError);
+            throw new Error(`Failed to delete storage files: ${storageError.message}`);
+          }
+        }
+        
+        // Delete from database
+        const { error: deleteError } = await supabase
+          .from("media")
+          .delete()
+          .in("id", mediaToDelete);
+        
+        if (deleteError) {
+          console.error("Media deletion error:", deleteError);
+          throw new Error(`Failed to delete media records: ${deleteError.message}`);
+        }
+        
+        toast.success(`Deleted ${mediaToDelete.length} media files.`);
+      }
+
+      // Upload new media files to the correct folder structure
+      for (const file of newMedia) {
+        // Create the folder path: media/{artist-id}/{filename}
+        const filePath = `media/${artist.id}/${Date.now()}_${file.name.replace(/\s+/g, '_')}`;
+        
+        const { error: uploadError } = await supabase.storage
+          .from("lab-upload")
+          .upload(filePath, file, { cacheControl: "3600", upsert: false });
+        
+        if (uploadError) {
+          console.error("Media upload error:", uploadError);
+          throw new Error(`Failed to upload media file ${file.name}: ${uploadError.message}`);
+        }
+        
+        // Get public URL
+        const { data: publicUrlData } = supabase.storage
+          .from("lab-upload")
+          .getPublicUrl(filePath);
+        
+        // Determine media type
+        let mediaType: 'photo' | 'video' = 'photo';
+        if (file.type.startsWith('video/')) {
+          mediaType = 'video';
+        }
+        
+        // Save media record to database
+        const { error: dbError } = await supabase
+          .from("media")
+          .insert({
+            artist_id: artist.id,
+            type: mediaType,
+            url: publicUrlData.publicUrl,
+            created_at: new Date().toISOString()
+          });
+        
+        if (dbError) {
+          console.error("Database media insert error:", dbError);
+          throw new Error(`Failed to save media record for ${file.name}: ${dbError.message}`);
         }
       }
 
-      // Pass updated data to onSave, including the avatar file and updated avatar_url
+      // Call the parent onSave function
       await onSave({
-        artist: { ...editedArtist, avatar_url }, // Update artist with Supabase URL
+        artist: { ...editedArtist, avatar_url },
         framework: editedFramework,
         session: editedSession,
         media: newMedia,
-        avatarFile, // Now correctly typed as File | undefined
+        avatarFile,
       });
+      
+      toast.success("Artist profile updated successfully!");
       onClose();
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
       console.error("Failed to save:", error);
+      toast.error(`Failed to save changes: ${errorMessage}`);
     } finally {
       setIsSaving(false);
     }
+  };
+
+  const getMediaIcon = (mediaItem: Media) => {
+    if (mediaItem.type === "video") return <FiVideo className="h-10 w-10 text-red-500" />;
+    return <FiImage className="h-10 w-10 text-blue-500" />;
   };
 
   return (
@@ -120,6 +307,7 @@ export default function EditArtistModal({
           <button
             onClick={onClose}
             className="text-gray-400 hover:text-gray-500 dark:hover:text-gray-300"
+            disabled={isSaving}
           >
             <FiX className="h-6 w-6" />
           </button>
@@ -137,7 +325,8 @@ export default function EditArtistModal({
                 required
                 value={editedArtist.name}
                 onChange={(e) => setEditedArtist({ ...editedArtist, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               />
             </div>
 
@@ -150,7 +339,8 @@ export default function EditArtistModal({
                 required
                 value={editedArtist.project_name}
                 onChange={(e) => setEditedArtist({ ...editedArtist, project_name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               />
             </div>
 
@@ -166,7 +356,8 @@ export default function EditArtistModal({
                     current_stage: e.target.value as Artist["current_stage"],
                   })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               >
                 {["Ideation", "Branding", "Production", "Launch"].map((stage) => (
                   <option key={stage} value={stage}>
@@ -185,8 +376,8 @@ export default function EditArtistModal({
                   <Image
                     src={previewAvatar}
                     alt="Avatar preview"
-                    width={140}
-                    height={140}
+                    width={80}
+                    height={80}
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -203,6 +394,7 @@ export default function EditArtistModal({
                   accept="image/*"
                   onChange={handleAvatarChange}
                   className="hidden"
+                  disabled={isSaving}
                 />
               </label>
             </div>
@@ -219,7 +411,8 @@ export default function EditArtistModal({
                 onChange={(e) =>
                   setEditedArtist({ ...editedArtist, project_description: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px] focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               />
             </div>
 
@@ -232,7 +425,8 @@ export default function EditArtistModal({
                 onChange={(e) =>
                   setEditedArtist({ ...editedArtist, campaign_statement: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px] focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               />
             </div>
           </div>
@@ -251,11 +445,12 @@ export default function EditArtistModal({
                     onChange={(e) =>
                       setEditedFramework({
                         ...editedFramework,
-                        [field]: e.target.value.split(",").map((item) => item.trim()),
+                        [field]: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
                       })
                     }
-                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[80px]"
+                    className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[80px] focus:ring-2 focus:ring-blue-500"
                     placeholder={`Enter ${field}, separated by commas`}
+                    disabled={isSaving}
                   />
                   <div className="mt-2 flex flex-wrap gap-2">
                     {editedFramework[field].map((item, idx) => (
@@ -282,7 +477,8 @@ export default function EditArtistModal({
               <textarea
                 value={editedSession.summary}
                 onChange={(e) => setEditedSession({ ...editedSession, summary: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px]"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md min-h-[100px] focus:ring-2 focus:ring-blue-500"
+                disabled={isSaving}
               />
             </div>
 
@@ -296,11 +492,12 @@ export default function EditArtistModal({
                 onChange={(e) =>
                   setEditedSession({
                     ...editedSession,
-                    themes: e.target.value.split(",").map((item) => item.trim()),
+                    themes: e.target.value.split(",").map((item) => item.trim()).filter(Boolean),
                   })
                 }
-                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md focus:ring-2 focus:ring-blue-500"
                 placeholder="theme1, theme2, theme3"
+                disabled={isSaving}
               />
               <div className="mt-2 flex flex-wrap gap-2">
                 {editedSession.themes.map((theme, idx) => (
@@ -320,23 +517,65 @@ export default function EditArtistModal({
             <h4 className="text-md font-medium text-gray-900 dark:text-white">Media</h4>
 
             {/* Existing Media */}
-            {media.length > 0 && (
+            {existingMedia.length > 0 && (
               <div className="space-y-2">
                 <h5 className="text-sm font-medium text-gray-700 dark:text-gray-300">Existing Media</h5>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {media.map((item) => (
+                  {existingMedia.map((item, index) => (
                     <div
                       key={item.id}
                       className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2"
                     >
-                      <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                      <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center overflow-hidden">
                         {item.type === "video" ? (
-                          <FiVideo className="h-10 w-10 text-gray-400" />
+                          <div className="flex flex-col items-center justify-center">
+                            <FiVideo className="h-10 w-10 text-red-500 mb-2" />
+                            <span className="text-xs text-gray-500">Video File</span>
+                          </div>
                         ) : (
-                          <FiImage className="h-10 w-10 text-gray-400" />
+                          <>
+                            <Image
+                              src={item.url}
+                              alt={item.url.split('/').pop() || 'Media file'}
+                              width={100}
+                              height={100}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                // Fallback to icon if image fails to load
+                                e.currentTarget.style.display = 'none';
+                                const fallback = e.currentTarget.parentElement?.querySelector('.fallback-icon');
+                                if (fallback) {
+                                  fallback.classList.remove('hidden');
+                                }
+                              }}
+                            />
+                            <div className="hidden fallback-icon absolute inset-0 flex flex-col items-center justify-center">
+                              <FiImage className="h-10 w-10 text-blue-500 mb-2" />
+                              <span className="text-xs text-gray-500">Image</span>
+                            </div>
+                          </>
                         )}
                       </div>
-                      <p className="text-xs truncate mt-1">{item.description || "No description"}</p>
+                      <p className="text-xs truncate mt-1">{item.url.split('/').pop()}</p>
+                      <div className="flex justify-between items-center mt-2">
+                        <a
+                          href={item.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-500 hover:text-blue-700"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <FiDownload className="h-4 w-4" />
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => removeMedia(index, false)}
+                          className="text-red-500 hover:text-red-700"
+                          disabled={isSaving}
+                        >
+                          <FiTrash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -350,30 +589,47 @@ export default function EditArtistModal({
                 <label className="flex flex-col items-center justify-center cursor-pointer">
                   <FiUpload className="h-8 w-8 text-gray-400 mb-2" />
                   <span className="text-sm text-gray-500 dark:text-gray-400">
-                    Drag & drop files here or click to browse
+                    Drag & drop files (images, videos) or click to browse
                   </span>
                   <input
                     type="file"
                     multiple
+                    accept="image/*,video/*"
                     onChange={handleMediaUpload}
                     className="hidden"
+                    ref={fileInputRef}
+                    disabled={isSaving}
                   />
                 </label>
               </div>
 
               {/* New Media Preview */}
-              {newMedia.length > 0 && (
+              {mediaPreviews.length > 0 && (
                 <div className="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-4">
-                  {newMedia.map((file, index) => (
+                  {mediaPreviews.map(({ file, preview }, index) => (
                     <div
                       key={index}
                       className="relative group rounded-lg border border-gray-200 dark:border-gray-700 p-2"
                     >
                       <div className="aspect-square bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
-                        {file.type.includes("video") ? (
-                          <FiVideo className="h-10 w-10 text-gray-400" />
+                        {file.type.startsWith("image/") ? (
+                          <Image
+                            src={preview}
+                            alt={file.name}
+                            width={100}
+                            height={100}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : file.type.startsWith("video/") ? (
+                          <div className="flex flex-col items-center justify-center">
+                            <FiVideo className="h-10 w-10 text-red-500 mb-2" />
+                            <span className="text-xs text-gray-500">Video File</span>
+                          </div>
                         ) : (
-                          <FiImage className="h-10 w-10 text-gray-400" />
+                          <div className="flex flex-col items-center justify-center">
+                            <FiFile className="h-10 w-10 text-gray-500 mb-2" />
+                            <span className="text-xs text-gray-500">Document</span>
+                          </div>
                         )}
                       </div>
                       <p className="text-xs truncate mt-1">{file.name}</p>
@@ -381,6 +637,7 @@ export default function EditArtistModal({
                         type="button"
                         onClick={() => removeMedia(index, true)}
                         className="absolute top-1 right-1 p-1 bg-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                        disabled={isSaving}
                       >
                         <FiTrash2 className="h-3 w-3 text-white" />
                       </button>
@@ -395,7 +652,7 @@ export default function EditArtistModal({
         <div className="flex justify-end space-x-3 p-4 border-t border-gray-200 dark:border-gray-700 sticky bottom-0 bg-white dark:bg-gray-800">
           <button
             onClick={onClose}
-            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md"
+            className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700"
             disabled={isSaving}
           >
             Cancel

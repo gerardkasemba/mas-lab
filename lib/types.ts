@@ -36,6 +36,8 @@ export interface Media {
   type: "video" | "photo" | "moodboard"; // Media type
   url: string; // URL to Supabase Storage
   description?: string; // Optional description
+  created_at: string;
+  file_name: string;
 }
 
 // Form data for admin form submissions
